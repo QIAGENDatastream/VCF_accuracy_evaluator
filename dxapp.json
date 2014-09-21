@@ -1,0 +1,74 @@
+{
+  "name": "accuracy_evaluator",
+  "title": "SNP and Indel Evaluator",
+  "summary": "takes a gold snp set, bam, and vcf to evaluate for sens/spec",
+  "dxapi": "1.0.0",
+  "version": "0.0.1",
+  "categories": [],
+  "inputSpec": [
+    {
+      "name": "bam_file",
+      "label": "Bam File",
+      "class": "file",
+      "optional": false
+    },
+    {
+      "name": "bed_file",
+      "label": "Bed File of Target Regions",
+      "class": "file",
+      "optional": true
+    },
+    {
+      "name": "vcf_file",
+      "label": "VCF File of calls",
+      "class": "file",
+      "optional": false
+    },
+    {
+      "name": "qual_cutoff",
+      "label": "Average mapping quality of sites to include in manual review list- sites with a qual above this number will be reported",
+      "class": "int",
+      "optional": true,
+      "default": 20
+    },
+    {
+      "name": "depth_cutoff",
+      "label": "Depth at which sites should be included in manual review list - sites with a depth above this number will be reported",
+      "class": "int",
+      "optional": true,
+      "default": 20
+    }
+  ],
+  "outputSpec": [
+    {
+      "name": "sites_for_manual_review",
+      "label": "Manual Review Sites",
+      "class": "file"
+    },
+    {
+      "name": "number_of_missed_sites",
+      "label": "Number of missed calls",
+      "class": "int"
+    },
+    {
+      "name": "found_sites",
+      "label": "Total Correct Calls",
+      "class": "int"
+    },
+    {
+      "name": "Sensitivity",
+      "label": "Sensitivity",
+      "class": "float"
+    },
+    {
+      "name": "specificity",
+      "label": "Specificity",
+      "class": "float"
+    }
+  ],
+  "runSpec": {
+    "interpreter": "python2.7",
+    "file": "src/accuracy_evaluator.py"
+  },
+  "authorizedUsers": []
+}
