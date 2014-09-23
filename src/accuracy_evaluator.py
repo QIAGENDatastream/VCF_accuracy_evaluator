@@ -15,7 +15,7 @@ import os
 import dxpy
 
 @dxpy.entry_point('main')
-def main(bam_file, vcf_file, qual_cutoff, depth_cutoff, bed_file=None):
+def main(bam_file, ref_vcf_file, eval_vcf_file, qual_cutoff, depth_cutoff, bed_file=None):
 
     # The following line(s) initialize your data object inputs on the platform
     # into dxpy.DXDataObject instances that you can start using immediately.
@@ -23,7 +23,8 @@ def main(bam_file, vcf_file, qual_cutoff, depth_cutoff, bed_file=None):
     bam_file = dxpy.DXFile(bam_file)
     if bed_file is not None:
         bed_file = dxpy.DXFile(bed_file)
-    vcf_file = dxpy.DXFile(vcf_file)
+    ref_vcf_file = dxpy.DXFile(vcf_file)
+    eval_vcf_file = dxpy.DXFile(eval_vcf_file)
 
     # The following line(s) download your file inputs to the local file system
     # using variable names for the filenames.
