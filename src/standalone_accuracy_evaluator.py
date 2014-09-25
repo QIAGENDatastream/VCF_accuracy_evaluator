@@ -112,13 +112,15 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--bed_file", action="store", dest="bed_file", default=None)
-    parser.add_argument("--bam_file", action="store", dest="bam_file")
-    parser.add_argument("--ref_snp_vcf", action="store", dest="ref_snp_vcf")
-    parser.add_argument("--eval_snp_vcf", action="store", dest="eval_snp_vcf")
-    parser.add_argument("--ref_fasta", action="store", dest="ref_fasta")
+    parser = argparse.ArgumentParser(description="Take in a high quality snp/indel set and evaluate a call set for concordance")
+    parser.add_argument("--bed_file", action="store", dest="bed_file", default=None, help="bed file to limit comparisons to certain regions- optional")
+    parser.add_argument("--bam_file", action="store", dest="bam_file", help="bam file to use to get readcounts for missing sites")
+    parser.add_argument("--ref_vcf", action="store", dest="ref_vcf", help="file of SNPs or INDELs you know to be true in your callset")
+    parser.add_argument("--eval_vcf", action="store", dest="eval_vcf", help="file of SNPs and/or INDELs you want to compare to the known true callset")
+    parser.add_argument("--ref_fasta", action="store", dest="ref_fasta", help="reference fasta used to call the bam")
     args=parser.parse_args()
     #FIXME add nice error messages if not enough files are supplied
-    main(args.bed_file,args.bam_file, args.ref_snp_vcf, args.eval_snp_vcf, args.ref_fasta);
-
+    if not args.bam_file:
+        parser.print_help()
+        sys.exit(1)
+    main(args.bed_file,args.bam_file, args.ref_vcf, args.eval_vcf, args.ref_fasta);
