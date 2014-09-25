@@ -1,7 +1,7 @@
 <!-- dx-header -->
 # SNP and Indel Evaluator (DNAnexus Platform App)
 
-takes a gold snp set, bam, and vcf to evaluate for sens/spec  
+Takes a high quality snp vcf, bam, and a vcf to evaluate for sens/spec  
   
 This DNA Nexus App wraps a standalone python version of the evaluator that can be used without DNANexus  
   
@@ -17,6 +17,8 @@ optional arguments:
 -h, --help            show this help message and exit  
 --bed_file BED_FILE   bed file to limit comparisons to certain regions-  
 optional  
+
+required arguments:  
 --bam_file BAM_FILE   bam file to use to get readcounts for missing sites  
 --ref_vcf REF_VCF     file of SNPs or INDELs you know to be true in your  
 callset  
