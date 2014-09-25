@@ -15,17 +15,13 @@ Take in a high quality snp/indel set and evaluate a call set for concordance
   
 optional arguments:  
 -h, --help            show this help message and exit  
---bed_file BED_FILE   bed file to limit comparisons to certain regions-  
-optional  
+--bed_file BED_FILE   bed file to limit comparisons to certain regions  
 
 required arguments:  
 --bam_file BAM_FILE   bam file to use to get readcounts for missing sites  
---ref_vcf REF_VCF     file of SNPs or INDELs you know to be true in your  
-callset  
---eval_vcf EVAL_VCF   file of SNPs and/or INDELs you want to compare to the  
-known true callset  
---ref_fasta REF_FASTA  
-reference fasta used to call the bam  
+--ref_vcf REF_VCF     file of SNPs or INDELs you know to be true in your callset  
+--eval_vcf EVAL_VCF   file of SNPs and/or INDELs you want to compare to the known true callset  
+--ref_fasta REF_FASTA  reference fasta used to call the bam  
   
 
 
