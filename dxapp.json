@@ -69,6 +69,10 @@
   "runSpec": {
     "interpreter": "python2.7",
     "file": "src/accuracy_evaluator.py"
+    "buildDepends" : [
+      { "name" : "libfreetype6-dev" }],
+    "execDepends": [
+      { "name": "openjdk-7-jre-headless" }]
   },
   "authorizedUsers": []
 }
