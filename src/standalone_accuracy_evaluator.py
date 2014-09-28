@@ -11,6 +11,7 @@ VT_LOCATION = "/home/dnanexus//tools/dnanexus_accuracy_evaluator/bin/vt"
 BEDTOOLS_LOCATION = "/home/dnanexus//tools/dnanexus_accuracy_evaluator/bin/bedtools"
 
 def calculate_average_mapping_quality(per_base_counts):
+    print per_base_counts
     total_depth = 0
     total_mapping_quality = 0
     for basecount in per_base_counts:
@@ -18,6 +19,8 @@ def calculate_average_mapping_quality(per_base_counts):
         fields = basecount.split(":")
         total_depth+=int(fields[1])
         total_mapping_quality=(int(fields[1])*float(fields[2]))
+    if total_depth ==0:
+        return 0
     return total_mapping_quality/total_depth
 
 def xlabel_ticks(max_value, num_ticks):
@@ -115,7 +118,7 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta):
     bam_readcount_sites_file = prepare_sites_file_from_vcf(missed_sites_file)
     #run bam-readcount
     bam_readcount_output = "bam_readcount.output"
-    cmd = [BAM_READCOUNT_LOCATION, "-l", bam_readcount_sites_file, "-f", ref_fasta, bam_file, ">", bam_readcount_output]
+    cmd = [BAM_READCOUNT_LOCATION, "-w 1", "-l", bam_readcount_sites_file, "-f", ref_fasta, bam_file, ">", bam_readcount_output]
     print " ".join(cmd)
     subprocess.call(" ".join(cmd), shell=True)
     #generate graphs
