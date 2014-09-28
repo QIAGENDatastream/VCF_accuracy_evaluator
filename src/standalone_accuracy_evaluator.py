@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 
 import sys,re,os, subprocess
-import matplotlib, argparse 
+import argparse 
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 GATK_LOCATION =  "/home/dnanexus//tools/dnanexus_accuracy_evaluator/GATK/GenomeAnalysisTK.jar"
 BAM_READCOUNT_LOCATION = "/home/dnanexus//tools/dnanexus_accuracy_evaluator/bin/bam-readcount"
@@ -80,13 +82,14 @@ def prepare_sites_file_from_vcf(missed_sites_file):
     fh = open(missed_sites_file, "r")
     ofh = open("bam_readcount.input_sites", "w")
     while(True):
-       line = fh.getline()
+       line = fh.readline()
        if not line:
            break
        fields = line.split()
        #CHR POS POS for bam readcount, pulling from a vcf
-       ofh.write("\t".join([fields[1], fields[2], fields[2]]) + "\n")
+       ofh.write("\t".join([fields[0], fields[1], fields[1]]) + "\n")
     ofh.close()
+    return "bam_readcount.input_sites"
 
 def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta):
     #run VT on eval file to make sure any indels are left shifted
@@ -96,7 +99,7 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta):
     subprocess.call(cmd)
     #run GATK evaluator and store output
     gatk_results = "gatk_genotype_concordance_output"
-    cmd = ["java", "-jar", GATK_LOCATION, "--comp", ref_snp_vcf, "--eval", eval_snp_vcf, "-R", ref_fasta, "-o", gatk_results]
+    cmd = ["java", "-jar", GATK_LOCATION, "-T", "GenotypeConcordance", "--comp", ref_snp_vcf, "--eval", eval_snp_vcf, "-R", ref_fasta, "-o", gatk_results]
     print " ".join(cmd)
     subprocess.call(cmd)
     if(bed_file != None):
@@ -106,15 +109,15 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta):
     missed_sites_file = "sites_only_in_ref.vcf.gz"
     cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-a", ref_snp_vcf, "-b", eval_snp_vcf, ">", missed_sites_file]
     print " ".join(cmd)
-    subprocess.call(cmd)
+    subprocess.call(" ".join(cmd), shell=True)
     #prepare sites into bam-readcount format CHR START STOP
    
     bam_readcount_sites_file = prepare_sites_file_from_vcf(missed_sites_file)
     #run bam-readcount
     bam_readcount_output = "bam_readcount.output"
-    cmd = [BAM_READCOUNT_LOCATION, "-l", bam_readcount_sites_file, "-f", ref_fasta, ">", bam_readcount_output]
+    cmd = [BAM_READCOUNT_LOCATION, "-l", bam_readcount_sites_file, "-f", ref_fasta, bam_file, ">", bam_readcount_output]
     print " ".join(cmd)
-    subprocess.call(cmd)
+    subprocess.call(" ".join(cmd), shell=True)
     #generate graphs
     missing_sites_coverage_quality_png = generate_coverage_and_quality_graph(bam_readcount_output)
 
