@@ -31,11 +31,26 @@ def xlabel_ticks(max_value, num_ticks):
     tick_labels = ["0", "10", "100", "1000"]
     return (tick_positions, tick_labels)
 
+def calculate_color(fields):
+    ref_base = fields[2].upper()
+    ref_count=0
+    non_ref_count=0
+    for basecount in fields[-5:]:
+        basecount_fields = basecount.split(":")
+        if (basecount_fields[0] == ref_base) or (basecount_fields[0]=="="):
+            #reference base
+            ref_count+=int(basecount_fields[1]) #add coverage to total
+        else:
+            non_ref_count+=int(basecount_fields[1]) 
+    ref_ratio = float(ref_count) / (non_ref_count + ref_count) #for red yellow green, we want 100% ref points to be "green" / good
+    return plt.cm.RdYlGn(ref_ratio)
+
 
 def generate_coverage_and_quality_graph(bam_readcount_output, mapping_qual_cutoff=20,coverage_cutoff=15):
     fh = open(bam_readcount_output, "r")
     x=list()
     y=list()
+    colors = list()
     max_coverage = 0
     max_quality = 0
     passing_sites = 0
@@ -48,14 +63,16 @@ def generate_coverage_and_quality_graph(bam_readcount_output, mapping_qual_cutof
         if(max_coverage < int(coverage)):
             max_coverage = int(coverage)
         average_mapping_quality = calculate_average_mapping_quality(fields[-5:])
+        color_value = calculate_color(fields)
         if(average_mapping_quality > max_quality):
             max_quality=average_mapping_quality
         if(average_mapping_quality > mapping_qual_cutoff and int(coverage) > coverage_cutoff):
             passing_sites+=1
         x.append(int(coverage))
         y.append(average_mapping_quality)
+        colors.append(color_value)
     fig = plt.figure(figsize=(10,7.5), dpi=80)
-    plt.scatter(x, y, marker=".")
+    plt.scatter(x, y, color=colors, marker=".")
     plt.axhline(y=20, color="red")
     plt.axvline(x=15, color="red")
     plt.xscale('log')
@@ -71,6 +88,14 @@ def generate_coverage_and_quality_graph(bam_readcount_output, mapping_qual_cutof
     ax = plt.gca()
     plt.text(.8, .8, "HQ sites missed:%s" % passing_sites, horizontalalignment="right", color="red", transform=ax.transAxes)
     #plt.show()
+    scalar_colormap = plt.cm.ScalarMappable(cmap="RdYlGn")
+    scalar_colormap.set_array(colors)
+   # axins = inset_axes(ax, width ="2.5%", height="50%", loc=3, bbox_to_anchor=(1.02, 0., 1,1), bbox_transform=ax.transAxes, borderpad=0)
+    axins = inset_axes(ax, width ="2.5%", height="30%", loc=2)
+    cbar = fig.colorbar(scalar_colormap, cax=axins, ticks=[0, .5,1])
+    cbar.ax.set_yticklabels(["100% Variant", "50% Ref", "100% Ref"])
+    for label in cbar.ax.get_yticklabels():
+        label.set_fontsize(8)
     plt.savefig("test.png")
 
 
@@ -102,22 +127,22 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta):
     missed_sites_file = "sites_only_in_ref.vcf.gz"
     cmd = [BEDTOOLS_LOCATION, "-v", "-a", ref_snp_vcf, "-b", eval_snp_vcf, ">", missed_sites_file]
     #prepare sites into bam-readcount format CHR START STOP
-    bam_readcount_sites_file = prepare_sites_file_from_vcf(missed_sites_file)
+  #  bam_readcount_sites_file = prepare_sites_file_from_vcf(missed_sites_file)
     #run bam-readcount
-    bam_readcount_output = "bam_readcount.output"
-    cmd = [BAM_READCOUNT_LOCATION, "-l", bam_readcount_sites_file, "-f", ref_fasta, ">", bam_readcount_output]
+  #  bam_readcount_output = "bam_readcount.output"
+  #  cmd = [BAM_READCOUNT_LOCATION, "-l", bam_readcount_sites_file, "-f", ref_fasta, ">", bam_readcount_output]
     #generate graphs
-    missing_sites_coverage_quality_png = generate_coverage_and_quality_graph(bam_readcount_output)
+  #  missing_sites_coverage_quality_png = generate_coverage_and_quality_graph(bam_readcount_output)
 
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Take in a high quality snp/indel set and evaluate a call set for concordance")
     parser.add_argument("--bed_file", action="store", dest="bed_file", default=None, help="bed file to limit comparisons to certain regions- optional")
-    parser.add_argument("--bam_file", action="store", dest="bam_file", help="bam file to use to get readcounts for missing sites")
-    parser.add_argument("--ref_vcf", action="store", dest="ref_vcf", help="file of SNPs or INDELs you know to be true in your callset")
-    parser.add_argument("--eval_vcf", action="store", dest="eval_vcf", help="file of SNPs and/or INDELs you want to compare to the known true callset")
-    parser.add_argument("--ref_fasta", action="store", dest="ref_fasta", help="reference fasta used to call the bam")
+    parser.add_argument("--bam_file", action="store", dest="bam_file", help="bam file to use to get readcounts for missing sites",required=True)
+    parser.add_argument("--ref_vcf", action="store", dest="ref_vcf", help="file of SNPs or INDELs you know to be true in your callset", required=True)
+    parser.add_argument("--eval_vcf", action="store", dest="eval_vcf", help="file of SNPs and/or INDELs you want to compare to the known true callset", required=True)
+    parser.add_argument("--ref_fasta", action="store", dest="ref_fasta", help="reference fasta used to call the bam", required=True)
     args=parser.parse_args()
     #FIXME add nice error messages if not enough files are supplied
     if not args.bam_file:
