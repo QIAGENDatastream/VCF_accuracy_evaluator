@@ -1,14 +1,17 @@
 #!/usr/bin/env python
 
-import sys,re,os
-import matplotlib, argparse 
+import sys,re,os, subprocess
+import argparse 
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
-GATK_LOCATION =  ""
-BAM_READCOUNT_LOCATION = ""
-VT_LOCATION = ""
-BEDTOOLS_LOCATION = ""
+GATK_LOCATION =  "/home/dnanexus//tools/dnanexus_accuracy_evaluator/GATK/GenomeAnalysisTK.jar"
+BAM_READCOUNT_LOCATION = "/home/dnanexus//tools/dnanexus_accuracy_evaluator/bin/bam-readcount"
+VT_LOCATION = "/home/dnanexus//tools/dnanexus_accuracy_evaluator/bin/vt"
+BEDTOOLS_LOCATION = "/home/dnanexus//tools/dnanexus_accuracy_evaluator/bin/bedtools"
 
 def calculate_average_mapping_quality(per_base_counts):
+    print per_base_counts
     total_depth = 0
     total_mapping_quality = 0
     for basecount in per_base_counts:
@@ -16,6 +19,8 @@ def calculate_average_mapping_quality(per_base_counts):
         fields = basecount.split(":")
         total_depth+=int(fields[1])
         total_mapping_quality=(int(fields[1])*float(fields[2]))
+    if total_depth ==0:
+        return 0
     return total_mapping_quality/total_depth
 
 def xlabel_ticks(max_value, num_ticks):
@@ -105,32 +110,41 @@ def prepare_sites_file_from_vcf(missed_sites_file):
     fh = open(missed_sites_file, "r")
     ofh = open("bam_readcount.input_sites", "w")
     while(True):
-       line = fh.getline()
+       line = fh.readline()
        if not line:
            break
        fields = line.split()
        #CHR POS POS for bam readcount, pulling from a vcf
-       ofh.write("\t".join([fields[1], fields[2], fields[2]]) + "\n")
+       ofh.write("\t".join([fields[0], fields[1], fields[1]]) + "\n")
     ofh.close()
+    return "bam_readcount.input_sites"
 
 def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta):
     #run VT on eval file to make sure any indels are left shifted
     normalized_vcf_output = "temp.normalized.vcf.gz"
-    cmd = [ VT_LOCATION, "-r", ref_fasta, eval_snp_vcf, "-o", normalized_vcf_output ]
+    cmd = [ VT_LOCATION, "normalize", "-r", ref_fasta, eval_snp_vcf, "-o", normalized_vcf_output ]
+    print " ".join(cmd)
+    subprocess.call(cmd)
     #run GATK evaluator and store output
     gatk_results = "gatk_genotype_concordance_output"
-    cmd = [ GATK_LOCATION, "--comp", ref_snp_vcf, "--eval", eval_snp_vcf, "-R", ref_fasta, "-o", gatk_results]
+    cmd = ["java", "-jar", GATK_LOCATION, "-T", "GenotypeConcordance", "--comp", ref_snp_vcf, "--eval", eval_snp_vcf, "-R", ref_fasta, "-o", gatk_results]
+    print " ".join(cmd)
+    subprocess.call(cmd)
     if(bed_file != None):
         cmd.append(["-L", bed_file])
 
     #run bed intersect by position and get the disjoint set only in reference
     missed_sites_file = "sites_only_in_ref.vcf.gz"
-    cmd = [BEDTOOLS_LOCATION, "-v", "-a", ref_snp_vcf, "-b", eval_snp_vcf, ">", missed_sites_file]
+    cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-a", ref_snp_vcf, "-b", eval_snp_vcf, ">", missed_sites_file]
+    print " ".join(cmd)
+    subprocess.call(" ".join(cmd), shell=True)
     #prepare sites into bam-readcount format CHR START STOP
-  #  bam_readcount_sites_file = prepare_sites_file_from_vcf(missed_sites_file)
+    bam_readcount_sites_file = prepare_sites_file_from_vcf(missed_sites_file)
     #run bam-readcount
-  #  bam_readcount_output = "bam_readcount.output"
-  #  cmd = [BAM_READCOUNT_LOCATION, "-l", bam_readcount_sites_file, "-f", ref_fasta, ">", bam_readcount_output]
+    bam_readcount_output = "bam_readcount.output"
+    cmd = [BAM_READCOUNT_LOCATION, "-w 1", "-l", bam_readcount_sites_file, "-f", ref_fasta, bam_file, ">", bam_readcount_output]
+    print " ".join(cmd)
+    subprocess.call(" ".join(cmd), shell=True)
     #generate graphs
   #  missing_sites_coverage_quality_png = generate_coverage_and_quality_graph(bam_readcount_output)
 
