@@ -5,10 +5,11 @@ import argparse
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
-GATK_LOCATION =  "/home/dnanexus//tools/dnanexus_accuracy_evaluator/GATK/GenomeAnalysisTK.jar"
-BAM_READCOUNT_LOCATION = "/home/dnanexus//tools/dnanexus_accuracy_evaluator/bin/bam-readcount"
-VT_LOCATION = "/home/dnanexus//tools/dnanexus_accuracy_evaluator/bin/vt"
-BEDTOOLS_LOCATION = "/home/dnanexus//tools/dnanexus_accuracy_evaluator/bin/bedtools"
+JAVA_LOCATION = "/Library/Java/JavaVirtualMachines/jdk1.7.0_60.jdk/Contents/Home/bin/java"
+GATK_LOCATION =  "../GATK/GenomeAnalysisTK.jar"
+BAM_READCOUNT_LOCATION = "../bam-readcount/bin/bam-readcount"
+VT_LOCATION = "../vt/vt"
+BEDTOOLS_LOCATION = "../bedtools/bin/bedtools"
 
 def calculate_average_mapping_quality(per_base_counts):
     print per_base_counts
@@ -119,6 +120,17 @@ def prepare_sites_file_from_vcf(missed_sites_file):
     ofh.close()
     return "bam_readcount.input_sites"
 
+def count_sites(vcf_file):
+    fh = open(vcf_file, "rb")
+    line_count = 0
+    while(1):
+        line = fh.readline()
+        if not line:
+            return line_count
+        else:
+            if line[0]!='#':
+                line_count+=1
+
 def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta):
     #run VT on eval file to make sure any indels are left shifted
     normalized_vcf_output = "temp.normalized.vcf.gz"
@@ -127,39 +139,60 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta):
     subprocess.call(cmd)
     #run GATK evaluator and store output
     gatk_results = "gatk_genotype_concordance_output"
-    cmd = ["java", "-jar", GATK_LOCATION, "-T", "GenotypeConcordance", "--comp", ref_snp_vcf, "--eval", eval_snp_vcf, "-R", ref_fasta, "-o", gatk_results]
-    print " ".join(cmd)
-    subprocess.call(cmd)
+    cmd = [JAVA_LOCATION, "-jar", GATK_LOCATION, "-T", "GenotypeConcordance", "--comp", ref_snp_vcf, "--eval", eval_snp_vcf, "-R", ref_fasta, "-o", gatk_results]
     if(bed_file != None):
-        cmd.append(["-L", bed_file])
-
+        cmd.extend(["-L", bed_file])
+    print " ".join(cmd)
+ #   subprocess.call(cmd)
     #run bed intersect by position and get the disjoint set only in reference
-    missed_sites_file = "sites_only_in_ref.vcf.gz"
-    cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-a", ref_snp_vcf, "-b", eval_snp_vcf, ">", missed_sites_file]
+    missed_sites_file = "sites_only_in_ref.vcf"
+    cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-header", "-a", ref_snp_vcf, "-b", eval_snp_vcf, ">", missed_sites_file]
     print " ".join(cmd)
     subprocess.call(" ".join(cmd), shell=True)
-    #prepare sites into bam-readcount format CHR START STOP
-    bam_readcount_sites_file = prepare_sites_file_from_vcf(missed_sites_file)
-    #run bam-readcount
-    bam_readcount_output = "bam_readcount.output"
-    cmd = [BAM_READCOUNT_LOCATION, "-w 1", "-l", bam_readcount_sites_file, "-f", ref_fasta, bam_file, ">", bam_readcount_output]
+    extra_sites_file = "sites_only_in_eval.vcf"
+    cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-header", "-a", eval_snp_vcf, "-b", ref_snp_vcf, ">", extra_sites_file]
     print " ".join(cmd)
     subprocess.call(" ".join(cmd), shell=True)
-    #generate graphs
-  #  missing_sites_coverage_quality_png = generate_coverage_and_quality_graph(bam_readcount_output)
-
+    missed_sites = count_sites(missed_sites_file)
+    extra_sites = count_sites(extra_sites_file)
+    total_ref_sites = count_sites(ref_snp_vcf)
+    total_eval_sites = count_sites(eval_snp_vcf)
+    print "Total Sites in Reference/Canonical VCF: %s" % total_ref_sites
+    print "Total Sites in Supplied/Evaluation VCF: %s" % total_eval_sites
+    print "Missed Sites: %s" % missed_sites
+    print "Extra Sites: %s" % extra_sites
+    if bed_file != None:
+        missed_sites_region_limited_file="sites_only_in_ref.region_limited.vcf"
+        limit_cmd = [BEDTOOLS_LOCATION, "intersect", "-wa", "-u", "-header", "-a", missed_sites_file, "-b", bed_file, ">", missed_sites_region_limited_file]
+        subprocess.call(" ".join(limit_cmd), shell=True)
+        extra_sites_region_limited_file="sites_only_in_eval.region_limited.vcf"
+        limit_cmd = [BEDTOOLS_LOCATION, "intersect", "-wa", "-u", "-header", "-a", extra_sites_file, "-b", bed_file, ">", extra_sites_region_limited_file]
+        subprocess.call(" ".join(limit_cmd), shell=True)
+        missed_sites_in_region = count_sites(missed_sites_region_limited_file)
+        extra_sites_in_region = count_sites(extra_sites_region_limited_file)
+        print "Missed Sites (Limited by supplied bed file): %s" % missed_sites_in_region
+        print "Extra Sites (Limited by supplied bed file): %s" % extra_sites_in_region
+#prepare sites into bam-readcount format CHR START STOP
+    if(bam_file != None and os.path.exists(bam_file)):
+        bam_readcount_sites_file = prepare_sites_file_from_vcf(missed_sites_file)
+        #run bam-readcount
+        bam_readcount_output = "bam_readcount.output"
+        cmd = [BAM_READCOUNT_LOCATION, "-w 1", "-l", bam_readcount_sites_file, "-f", ref_fasta, bam_file, ">", bam_readcount_output]
+        print " ".join(cmd)
+        subprocess.call(" ".join(cmd), shell=True)
+        #generate graphs
+        missing_sites_coverage_quality_png = generate_coverage_and_quality_graph(bam_readcount_output)
+    else:
+        print >>sys.stderr, "BAM file not supplied - skipping missing site interrogation!"
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Take in a high quality snp/indel set and evaluate a call set for concordance")
     parser.add_argument("--bed_file", action="store", dest="bed_file", default=None, help="bed file to limit comparisons to certain regions- optional")
-    parser.add_argument("--bam_file", action="store", dest="bam_file", help="bam file to use to get readcounts for missing sites",required=True)
+    parser.add_argument("--bam_file", action="store", dest="bam_file", help="bam file to use to get readcounts for missing sites")
     parser.add_argument("--ref_vcf", action="store", dest="ref_vcf", help="file of SNPs or INDELs you know to be true in your callset", required=True)
     parser.add_argument("--eval_vcf", action="store", dest="eval_vcf", help="file of SNPs and/or INDELs you want to compare to the known true callset", required=True)
     parser.add_argument("--ref_fasta", action="store", dest="ref_fasta", help="reference fasta used to call the bam", required=True)
     args=parser.parse_args()
     #FIXME add nice error messages if not enough files are supplied
-    if not args.bam_file:
-        parser.print_help()
-        sys.exit(1)
     main(args.bed_file,args.bam_file, args.ref_vcf, args.eval_vcf, args.ref_fasta);
