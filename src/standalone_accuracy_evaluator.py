@@ -148,7 +148,7 @@ def get_tabix_chrom(vcf, chromosome, output=None):
 def bedtools_loj(ref_vcf, eval_vcf, output=None):
     if not output:
         output="left_outer_join_temp"
-    cmd = [BEDTOOLS_LOCATION, "intersect", "-loj", "-a", ref_vcf, "-b", eval_vcf, ">" , output]
+    cmd = [BEDTOOLS_LOCATION, "intersect", "-loj", "-f 1", "-a", ref_vcf, "-b", eval_vcf, ">" , output]
    # print >>sys.stderr, " ".join(cmd)
     subprocess.call(" ".join(cmd), shell=True)
     return output
@@ -197,16 +197,23 @@ def parse_bedtools_intersection(loj_bedtools_file):
     #should be 20 columns for two one sample vcf files
     fh = open_file(loj_bedtools_file)
     stats_dict = dict()
+    prev_pos = None
+    prev_line = None
+    doublings=0
     while(1):
         line = fh.readline()
         if not line:
             break
         fields = line.split()
+        if(prev_pos == fields[1]):
+           doublings+=1 
         if len(fields) != 20: 
             print >>sys.stderr, "Expected 20 fields when joining two single sample vcf files, problem line: %s" % line
             sys.exit(1)
         ref_vcf_line = fields[0:10]
         eval_vcf_line = fields[10:20]
+        prev_pos = fields[1]
+        prev_line = line
         (status, mutation_type, differences) = compare_vcf_lines(ref_vcf_line, eval_vcf_line)
         if mutation_type not in stats_dict:
             stats_dict[mutation_type]=dict()
@@ -216,7 +223,7 @@ def parse_bedtools_intersection(loj_bedtools_file):
             stats_dict[mutation_type][status]+=1
       #  if(differences):
             # print >>sys.stderr, differences
-    return stats_dict
+    return (stats_dict, doublings)
 
 def open_file(filename):
      with magic.Magic(flags=magic.MAGIC_MIME_TYPE) as m:
@@ -245,10 +252,9 @@ def determine_chrom_list(ref_vcf, eval_vcf):
                     chrom_dict[fields[0]]=2
     shared_chroms = list()
     for (key, value) in chrom_dict.items():
-        print key, value
         if(value ==2):
             shared_chroms.append(key)
-    print >>sys.stderr, "Found %d chromosomes in comming between the two files: %s" % ( len(shared_chroms), ", ".join(shared_chroms))
+    print >>sys.stderr, "Found %d chromosomes in common between the two files: %s" % ( len(shared_chroms), ", ".join(shared_chroms))
     return shared_chroms
         
 def pretty_print_stats(stats, chrom=None):
@@ -263,9 +269,19 @@ def pretty_print_stats(stats, chrom=None):
     if(chrom):
         print "Chromosome %s stats:" % chrom
     for mut_type in stats.iterkeys():
-        print "\t%s (%d):" % (mut_type, totals[mut_type])
         for stat in stats[mut_type].iterkeys():
-            print "\t\t%s:%d"%(stat, stats[mut_type][stat])
+            print "%s\t%s\t%d"%(mut_type, stat, stats[mut_type][stat])
+        print "%s\t%s\t%d"%(mut_type, "TOTAL", totals[mut_type])
+        if "EXACT_MATCH" in stats[mut_type]:
+            correct_percent = float(stats[mut_type]["EXACT_MATCH"]) / totals[mut_type] * 100
+        else:
+            correct_percent=0
+        if "NOT_FOUND_IN_EVALUATION_CALLSET" in stats[mut_type]:
+            missed_percent = float(stats[mut_type]["NOT_FOUND_IN_EVALUATION_CALLSET"]) / totals[mut_type] * 100
+        else:
+            missed_percent = 0
+        print "%s\t%s\t%s"%(mut_type, "PERCENTAGE_EXACTLY_CORRECT", "%0.2f" % correct_percent)
+        print "%s\t%s\t%s"%(mut_type, "PERCENTAGE_COMPLETELY_MISSED", "%0.2f" % missed_percent)
     
 
 def deep_compare(ref_vcf, eval_vcf):
@@ -274,25 +290,33 @@ def deep_compare(ref_vcf, eval_vcf):
     tabix_file(ref_vcf)
     tabix_file(eval_vcf)
     total_stats = None 
+    total_doublings = 0
     for chromosome in chrom_list:
         ref_chrom = get_tabix_chrom(ref_vcf, chromosome)
         eval_chrom = get_tabix_chrom(eval_vcf, chromosome)
         intersected_output = bedtools_loj(ref_chrom, eval_chrom)
-        stats_dict = parse_bedtools_intersection(intersected_output)
-        pretty_print_stats(stats_dict, chrom=chromosome)
+        (stats_dict, doublings) = parse_bedtools_intersection(intersected_output)
+        total_doublings+=doublings
+        print >>sys.stderr, "%d doublings in chrom %s" % (doublings, chromosome)
+        os.unlink(ref_chrom)
+        os.unlink(eval_chrom)
+        os.unlink(intersected_output)
+      #  pretty_print_stats(stats_dict, chrom=chromosome)
         if not total_stats:
-            total_stats =stats_dict
+            total_stats=stats_dict
         else:
             for k in stats_dict.iterkeys():
                 for j in stats_dict[k].iterkeys():
+                    if not j in total_stats[k]:
+                        total_stats[k][j]=0
                     total_stats[k][j]+=stats_dict[k][j]
     print "Overall Stats:"
+    print "Total Doubled lines: %d" % total_doublings
     pretty_print_stats(total_stats)
      #indels_by_position, indels_by_position_and_genotype
         #snps_by_position, snps_by_position_and_genotype
 
 def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compare, do_gatk, do_positional):
-    print do_deep_compare, do_gatk, do_positional
     #run VT on eval file to make sure any indels are left shifted
     normalized_vcf_output = "temp.normalized.vcf.gz"
     cmd = [ VT_LOCATION, "normalize", "-r", ref_fasta, eval_snp_vcf, "-o", normalized_vcf_output ]
