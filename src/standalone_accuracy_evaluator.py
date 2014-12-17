@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys,re,os, subprocess
+import magic, gzip
 import argparse 
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
@@ -10,7 +11,7 @@ GATK_LOCATION =  "../GATK/GenomeAnalysisTK.jar"
 BAM_READCOUNT_LOCATION = "../bam-readcount/bin/bam-readcount"
 VT_LOCATION = "../vt/vt"
 BEDTOOLS_LOCATION = "../bedtools/bin/bedtools"
-
+TABIX_LOCATION = "tabix"
 def calculate_average_mapping_quality(per_base_counts):
     print per_base_counts
     total_depth = 0
@@ -131,49 +132,216 @@ def count_sites(vcf_file):
             if line[0]!='#':
                 line_count+=1
 
-def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta):
+def tabix_file(vcf):
+    cmd = [TABIX_LOCATION, "-p" , "vcf", vcf]
+    print >>sys.stderr, " ".join(cmd)
+    rv = subprocess.call(cmd)
+   
+def get_tabix_chrom(vcf, chromosome, output=None):
+    if not output:
+        output = chromosome + "." + os.path.basename(vcf)
+    cmd = [TABIX_LOCATION, "-h", vcf, chromosome, ">", output]
+ ###   print >>sys.stderr, " ".join(cmd)
+    subprocess.call(" ".join(cmd), shell=True)
+    return output
+
+def bedtools_loj(ref_vcf, eval_vcf, output=None):
+    if not output:
+        output="left_outer_join_temp"
+    cmd = [BEDTOOLS_LOCATION, "intersect", "-loj", "-a", ref_vcf, "-b", eval_vcf, ">" , output]
+   # print >>sys.stderr, " ".join(cmd)
+    subprocess.call(" ".join(cmd), shell=True)
+    return output
+
+def make_vcf_dict(vcf_line):
+    keys = ["CHR", "POS", "ID", "REF", "ALT" , "SCORE", "FILTER", "INFO", "FORMAT", "SAMPLE"] 
+    vcf=dict(zip(keys, vcf_line))
+    sample_fields = vcf["SAMPLE"].split(":")
+    vcf["GT"]=sample_fields[0]
+    return vcf 
+
+def determine_mutation_type(vcf):
+    ref_allele = vcf["REF"]
+    alt_allele = vcf["ALT"]
+    alt_alleles = alt_allele.split(",")
+    types = list()
+    for alt in alt_alleles:
+        if len(ref_allele) == len(alt) and len(ref_allele) ==1:
+            types.append("SNP")
+        elif len(ref_allele) > 1 or len(alt) > 1:
+            types.append("INDEL")
+    if(len(set(types))==1):
+        return types[0]
+    else:
+        return "MIXED"
+            
+def compare_vcf_lines(ref_line, eval_line):
+    #CHROM, POS, ID, REF, ALT, SCORE, FILTER, INFO, FORMAT, SAMPLE
+    ref_vcf = make_vcf_dict(ref_line)
+    mutation_type = determine_mutation_type(ref_vcf)
+    if eval_line[0] == ".":
+        return ("NOT_FOUND_IN_EVALUATION_CALLSET", mutation_type, None)
+    eval_vcf = make_vcf_dict(eval_line)
+    if(ref_vcf["ALT"] == eval_vcf["ALT"]):
+        #are genotype an exact match
+        if cmp(eval_vcf["GT"].split("[/|]"),ref_vcf["GT"].split("[/|]"))==0:
+             return ("EXACT_MATCH", mutation_type, None)
+        else:
+            return  ("DIFFERENT_GENOTYPES", mutation_type, [ref_vcf["GT"], eval_vcf["GT"]])
+    else:
+        return ("DIFFERENT ALTS", mutation_type, [ref_vcf["ALT"], eval_vcf["ALT"]])
+        
+
+def parse_bedtools_intersection(loj_bedtools_file):
+    #expecting a  left outer joined bedtools file here 
+    #should be 20 columns for two one sample vcf files
+    fh = open_file(loj_bedtools_file)
+    stats_dict = dict()
+    while(1):
+        line = fh.readline()
+        if not line:
+            break
+        fields = line.split()
+        if len(fields) != 20: 
+            print >>sys.stderr, "Expected 20 fields when joining two single sample vcf files, problem line: %s" % line
+            sys.exit(1)
+        ref_vcf_line = fields[0:10]
+        eval_vcf_line = fields[10:20]
+        (status, mutation_type, differences) = compare_vcf_lines(ref_vcf_line, eval_vcf_line)
+        if mutation_type not in stats_dict:
+            stats_dict[mutation_type]=dict()
+        if status not in stats_dict[mutation_type]:
+            stats_dict[mutation_type][status]=1
+        else:
+            stats_dict[mutation_type][status]+=1
+      #  if(differences):
+            # print >>sys.stderr, differences
+    return stats_dict
+
+def open_file(filename):
+     with magic.Magic(flags=magic.MAGIC_MIME_TYPE) as m:
+        if(m.id_filename(filename).find("gzip") != -1):
+            fh = gzip.open(filename, "rb")
+        else:
+            fh = open(filename, "rb")
+     return fh
+
+
+def determine_chrom_list(ref_vcf, eval_vcf):
+    chrom_dict = dict()
+    for vcf in [ref_vcf, eval_vcf]:
+        fh = open_file(vcf)
+        while(1):
+            line = fh.readline()
+            if not line:
+                break
+            if line[0]!="#":
+                fields = line.split()
+                if fields[0] not in chrom_dict:
+                    chrom_dict[fields[0]]=vcf
+                elif fields[0] == vcf:
+                    True
+                else:
+                    chrom_dict[fields[0]]=2
+    shared_chroms = list()
+    for (key, value) in chrom_dict.items():
+        print key, value
+        if(value ==2):
+            shared_chroms.append(key)
+    print >>sys.stderr, "Found %d chromosomes in comming between the two files: %s" % ( len(shared_chroms), ", ".join(shared_chroms))
+    return shared_chroms
+        
+def pretty_print_stats(stats, chrom=None):
+    # {'MIXED': {'DIFFERENT ALTS': 214, 'NOT_FOUND_IN_EVALUATION_CALLSET': 1174}, 'INDEL': {'DIFFERENT ALTS': 2874, 'EXACT_MATCH': 1147, 'DIFFERENT_GENOTYPES': 208, 'NOT_FOUND_IN_EVALUATION_CALLSET': 169375}, 'SNP': {'DIFFERENT ALTS': 107, 'EXACT_MATCH': 2715136, 'DIFFERENT_GENOTYPES': 4688, 'NOT_FOUND_IN_EVALUATION_CALLSET': 21429}}
+    totals = dict()
+    for k in stats.iterkeys():
+        for j in stats[k].iterkeys():
+            if k not in totals:
+                totals[k]=stats[k][j]
+            else:
+                totals[k]+=stats[k][j]
+    if(chrom):
+        print "Chromosome %s stats:" % chrom
+    for mut_type in stats.iterkeys():
+        print "\t%s (%d):" % (mut_type, totals[mut_type])
+        for stat in stats[mut_type].iterkeys():
+            print "\t\t%s:%d"%(stat, stats[mut_type][stat])
+    
+
+def deep_compare(ref_vcf, eval_vcf):
+    chrom_list = determine_chrom_list(ref_vcf, eval_vcf)
+    #chrom_list = ["1"]
+    tabix_file(ref_vcf)
+    tabix_file(eval_vcf)
+    total_stats = None 
+    for chromosome in chrom_list:
+        ref_chrom = get_tabix_chrom(ref_vcf, chromosome)
+        eval_chrom = get_tabix_chrom(eval_vcf, chromosome)
+        intersected_output = bedtools_loj(ref_chrom, eval_chrom)
+        stats_dict = parse_bedtools_intersection(intersected_output)
+        pretty_print_stats(stats_dict, chrom=chromosome)
+        if not total_stats:
+            total_stats =stats_dict
+        else:
+            for k in stats_dict.iterkeys():
+                for j in stats_dict[k].iterkeys():
+                    total_stats[k][j]+=stats_dict[k][j]
+    print "Overall Stats:"
+    pretty_print_stats(total_stats)
+     #indels_by_position, indels_by_position_and_genotype
+        #snps_by_position, snps_by_position_and_genotype
+
+def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compare, do_gatk, do_positional):
+    print do_deep_compare, do_gatk, do_positional
     #run VT on eval file to make sure any indels are left shifted
     normalized_vcf_output = "temp.normalized.vcf.gz"
     cmd = [ VT_LOCATION, "normalize", "-r", ref_fasta, eval_snp_vcf, "-o", normalized_vcf_output ]
     print " ".join(cmd)
     subprocess.call(cmd)
     #run GATK evaluator and store output
-    gatk_results = "gatk_genotype_concordance_output"
-    cmd = [JAVA_LOCATION, "-jar", GATK_LOCATION, "-T", "GenotypeConcordance", "--comp", ref_snp_vcf, "--eval", eval_snp_vcf, "-R", ref_fasta, "-o", gatk_results]
-    if(bed_file != None):
-        cmd.extend(["-L", bed_file])
-    print " ".join(cmd)
- #   subprocess.call(cmd)
+    if(do_gatk==True):
+        gatk_results = "gatk_genotype_concordance_output"
+        cmd = [JAVA_LOCATION, "-jar", GATK_LOCATION, "-T", "GenotypeConcordance", "--comp", ref_snp_vcf, "--eval", normalized_vcf_output, "-R", ref_fasta, "-o", gatk_results]
+        if(bed_file != None):
+            cmd.extend(["-L", bed_file])
+        #print " ".join(cmd)
+        subprocess.call(cmd)
     #run bed intersect by position and get the disjoint set only in reference
-    missed_sites_file = "sites_only_in_ref.vcf"
-    cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-header", "-a", ref_snp_vcf, "-b", eval_snp_vcf, ">", missed_sites_file]
-    print " ".join(cmd)
-    subprocess.call(" ".join(cmd), shell=True)
-    extra_sites_file = "sites_only_in_eval.vcf"
-    cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-header", "-a", eval_snp_vcf, "-b", ref_snp_vcf, ">", extra_sites_file]
-    print " ".join(cmd)
-    subprocess.call(" ".join(cmd), shell=True)
-    missed_sites = count_sites(missed_sites_file)
-    extra_sites = count_sites(extra_sites_file)
-    total_ref_sites = count_sites(ref_snp_vcf)
-    total_eval_sites = count_sites(eval_snp_vcf)
-    print "Total Sites in Reference/Canonical VCF: %s" % total_ref_sites
-    print "Total Sites in Supplied/Evaluation VCF: %s" % total_eval_sites
-    print "Missed Sites: %s" % missed_sites
-    print "Extra Sites: %s" % extra_sites
-    if bed_file != None:
-        missed_sites_region_limited_file="sites_only_in_ref.region_limited.vcf"
-        limit_cmd = [BEDTOOLS_LOCATION, "intersect", "-wa", "-u", "-header", "-a", missed_sites_file, "-b", bed_file, ">", missed_sites_region_limited_file]
-        subprocess.call(" ".join(limit_cmd), shell=True)
-        extra_sites_region_limited_file="sites_only_in_eval.region_limited.vcf"
-        limit_cmd = [BEDTOOLS_LOCATION, "intersect", "-wa", "-u", "-header", "-a", extra_sites_file, "-b", bed_file, ">", extra_sites_region_limited_file]
-        subprocess.call(" ".join(limit_cmd), shell=True)
-        missed_sites_in_region = count_sites(missed_sites_region_limited_file)
-        extra_sites_in_region = count_sites(extra_sites_region_limited_file)
-        print "Missed Sites (Limited by supplied bed file): %s" % missed_sites_in_region
-        print "Extra Sites (Limited by supplied bed file): %s" % extra_sites_in_region
-#prepare sites into bam-readcount format CHR START STOP
+    if(do_positional==True):
+        missed_sites_file = "sites_only_in_ref.vcf"
+        cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-header", "-a", ref_snp_vcf, "-b", eval_snp_vcf, ">", missed_sites_file]
+        #print " ".join(cmd)
+        subprocess.call(" ".join(cmd), shell=True)
+        extra_sites_file = "sites_only_in_eval.vcf"
+        cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-header", "-a", eval_snp_vcf, "-b", ref_snp_vcf, ">", extra_sites_file]
+        #print " ".join(cmd)
+        subprocess.call(" ".join(cmd), shell=True)
+        missed_sites = count_sites(missed_sites_file)
+        extra_sites = count_sites(extra_sites_file)
+        total_ref_sites = count_sites(ref_snp_vcf)
+        total_eval_sites = count_sites(eval_snp_vcf)
+        print "[POSITION_BASED]Total Sites in Reference/Canonical VCF: %s" % total_ref_sites
+        print "[POSITION_BASED]Total Sites in Supplied/Evaluation VCF: %s" % total_eval_sites
+        print "[POSITION_BASED]Missed Sites: %s" % missed_sites
+        print "[POSITION_BASED]Extra Sites: %s" % extra_sites
+        if bed_file != None:
+            missed_sites_region_limited_file="sites_only_in_ref.region_limited.vcf"
+            limit_cmd = [BEDTOOLS_LOCATION, "intersect", "-wa", "-u", "-header", "-a", missed_sites_file, "-b", bed_file, ">", missed_sites_region_limited_file]
+            subprocess.call(" ".join(limit_cmd), shell=True)
+            extra_sites_region_limited_file="sites_only_in_eval.region_limited.vcf"
+            limit_cmd = [BEDTOOLS_LOCATION, "intersect", "-wa", "-u", "-header", "-a", extra_sites_file, "-b", bed_file, ">", extra_sites_region_limited_file]
+            subprocess.call(" ".join(limit_cmd), shell=True)
+            missed_sites_in_region = count_sites(missed_sites_region_limited_file)
+            extra_sites_in_region = count_sites(extra_sites_region_limited_file)
+            print "[POSITION_BASED]Missed Sites (Limited by supplied bed file): %s" % missed_sites_in_region
+            print "[POSITION_BASED]Extra Sites (Limited by supplied bed file): %s" % extra_sites_in_region
+
+    if(do_deep_compare==True):
+        #FIXME USE NORMALIZED VCF WHEN DONE TESTING
+        deep_compare(ref_snp_vcf, normalized_vcf_output)
+   #prepare sites into bam-readcount format CHR START STOP
     if(bam_file != None and os.path.exists(bam_file)):
+        #FIXME: need to have a missed_sites_file for sure even if user skips positional
         bam_readcount_sites_file = prepare_sites_file_from_vcf(missed_sites_file)
         #run bam-readcount
         bam_readcount_output = "bam_readcount.output"
@@ -193,6 +361,12 @@ if __name__ == "__main__":
     parser.add_argument("--ref_vcf", action="store", dest="ref_vcf", help="file of SNPs or INDELs you know to be true in your callset", required=True)
     parser.add_argument("--eval_vcf", action="store", dest="eval_vcf", help="file of SNPs and/or INDELs you want to compare to the known true callset", required=True)
     parser.add_argument("--ref_fasta", action="store", dest="ref_fasta", help="reference fasta used to call the bam", required=True)
+    parser.add_argument("--deep-compare", action="store_true", dest="deep_compare", default="False", help="break things down by chromsome, snp, and indel")
+    parser.add_argument("--gatk", action="store_true", dest="gatk", default="False", help="run GATK GenotypeConcordance for a further check")
+    parser.add_argument("--no-rough", action="store_false", dest="rough", default="True", help="skip positional/missing site bed file creation")
     args=parser.parse_args()
+    if not args.deep_compare and not args.gatk:
+        print >>sys.stderr, "Only doing fast positional intersect, aka --rough"
     #FIXME add nice error messages if not enough files are supplied
-    main(args.bed_file,args.bam_file, args.ref_vcf, args.eval_vcf, args.ref_fasta);
+    print args.gatk, args.deep_compare, args.rough
+    main(args.bed_file,args.bam_file, args.ref_vcf, args.eval_vcf, args.ref_fasta, args.deep_compare, args.gatk, args.rough);
