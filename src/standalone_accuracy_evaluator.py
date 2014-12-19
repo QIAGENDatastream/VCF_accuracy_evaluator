@@ -5,7 +5,7 @@ import magic, gzip
 import argparse 
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-
+from collections import Counter as mset
 JAVA_LOCATION = "/Library/Java/JavaVirtualMachines/jdk1.7.0_60.jdk/Contents/Home/bin/java"
 GATK_LOCATION =  "../GATK/GenomeAnalysisTK.jar"
 BAM_READCOUNT_LOCATION = "../bam-readcount/bin/bam-readcount"
@@ -174,7 +174,28 @@ def determine_mutation_type(vcf):
         return types[0]
     else:
         return "MIXED"
-            
+
+def compare_genotype(ref_vcf, eval_vcf):
+    ref_alt = ref_vcf["ALT"].split(",")
+    ref_gt = re.split("[/|]", ref_vcf['GT'])
+    ref_alt.insert(0,ref_vcf['REF'])
+    #use the GT indices as array indices as VCF intends - Ref = index 0, all alts = indices 1..n
+    ref_genotype = [ref_alt[int(ref_gt[0])],ref_alt[int(ref_gt[1])]]
+    eval_alt = eval_vcf["ALT"].split(",")
+    eval_gt = re.split("[/|]", eval_vcf['GT'])
+    eval_alt.insert(0, eval_vcf['REF'])
+    eval_genotype = [eval_alt[int(eval_gt[0])],eval_alt[int(eval_gt[1])]]
+    shared_allele_counts = mset(ref_genotype) & mset(eval_genotype)
+    number_of_alleles_matched = sum(shared_allele_counts.values())
+    if number_of_alleles_matched < 2:
+        print ref_genotype, eval_genotype, shared_allele_counts, number_of_alleles_matched
+    return number_of_alleles_matched 
+    
+        
+
+
+    
+
 def compare_vcf_lines(ref_line, eval_line):
     #CHROM, POS, ID, REF, ALT, SCORE, FILTER, INFO, FORMAT, SAMPLE
     ref_vcf = make_vcf_dict(ref_line)
@@ -182,14 +203,14 @@ def compare_vcf_lines(ref_line, eval_line):
     if eval_line[0] == ".":
         return ("NOT_FOUND_IN_EVALUATION_CALLSET", mutation_type, None)
     eval_vcf = make_vcf_dict(eval_line)
-    if(ref_vcf["ALT"] == eval_vcf["ALT"]):
+    number_of_alleles_matched = compare_genotype(ref_vcf, eval_vcf)
+    if number_of_alleles_matched==2:
         #are genotype an exact match
-        if cmp(eval_vcf["GT"].split("[/|]"),ref_vcf["GT"].split("[/|]"))==0:
-             return ("EXACT_MATCH", mutation_type, None)
-        else:
-            return  ("DIFFERENT_GENOTYPES", mutation_type, [ref_vcf["GT"], eval_vcf["GT"]])
-    else:
-        return ("DIFFERENT ALTS", mutation_type, [ref_vcf["ALT"], eval_vcf["ALT"]])
+        return ("EXACT_MATCH", mutation_type, None)
+    elif number_of_alleles_matched==1:
+        return  ("ONE_ALLELE_CORRECT", mutation_type, [ref_vcf["GT"], eval_vcf["GT"]])
+    elif number_of_alleles_matched==0:
+        return ("POSITONAL_MATCH_WRONG_ALLELES", mutation_type, [ref_vcf["ALT"], eval_vcf["ALT"]])
         
 
 def parse_bedtools_intersection(loj_bedtools_file):
@@ -207,8 +228,8 @@ def parse_bedtools_intersection(loj_bedtools_file):
         fields = line.split()
         if(prev_pos == fields[1]):
            doublings+=1 
-        if len(fields) != 20: 
-            print >>sys.stderr, "Expected 20 fields when joining two single sample vcf files, problem line: %s" % line
+        if len(fields) > 20: 
+            print >>sys.stderr, "Expected <20 fields when joining two single sample vcf files, problem line: %s" % line
             sys.exit(1)
         ref_vcf_line = fields[0:10]
         eval_vcf_line = fields[10:20]
@@ -321,7 +342,7 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compa
     normalized_vcf_output = "temp.normalized.vcf.gz"
     cmd = [ VT_LOCATION, "normalize", "-r", ref_fasta, eval_snp_vcf, "-o", normalized_vcf_output ]
     print " ".join(cmd)
-    subprocess.call(cmd)
+    #subprocess.call(cmd)
     #run GATK evaluator and store output
     if(do_gatk==True):
         gatk_results = "gatk_genotype_concordance_output"
