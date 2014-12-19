@@ -289,12 +289,17 @@ def pretty_print_stats(stats, chrom=None):
                 totals[k]+=stats[k][j]
     if(chrom):
         print "Chromosome %s stats:" % chrom
+    total_sites=0
+    total_exact_match_sites=0
+    
     for mut_type in stats.iterkeys():
         for stat in stats[mut_type].iterkeys():
             print "%s\t%s\t%d"%(mut_type, stat, stats[mut_type][stat])
         print "%s\t%s\t%d"%(mut_type, "TOTAL", totals[mut_type])
+        total_sites+=totals[mut_type]
         if "EXACT_MATCH" in stats[mut_type]:
             correct_percent = float(stats[mut_type]["EXACT_MATCH"]) / totals[mut_type] * 100
+            total_exact_match_sites+=stats[mut_type]["EXACT_MATCH"]
         else:
             correct_percent=0
         if "NOT_FOUND_IN_EVALUATION_CALLSET" in stats[mut_type]:
@@ -303,6 +308,9 @@ def pretty_print_stats(stats, chrom=None):
             missed_percent = 0
         print "%s\t%s\t%s"%(mut_type, "PERCENTAGE_EXACTLY_CORRECT", "%0.2f" % correct_percent)
         print "%s\t%s\t%s"%(mut_type, "PERCENTAGE_COMPLETELY_MISSED", "%0.2f" % missed_percent)
+    print "%s\t%s\t%s"%("OVERALL", "PERCENTAGE_EXACTLY_CORRECT", "%0.2f" % (total_exact_match_sites/total_sites * 100))
+    print "%s\t%s\t%s"%("OVERALL", "EXACT_MATCH", total_exact_match_sites)
+    print "%s\t%s\t%s"%("OVERALL", "TOTAL_SITES", total_sites)
     
 
 def deep_compare(ref_vcf, eval_vcf):
@@ -342,7 +350,7 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compa
     normalized_vcf_output = "temp.normalized.vcf.gz"
     cmd = [ VT_LOCATION, "normalize", "-r", ref_fasta, eval_snp_vcf, "-o", normalized_vcf_output ]
     print " ".join(cmd)
-    #subprocess.call(cmd)
+    subprocess.call(cmd)
     #run GATK evaluator and store output
     if(do_gatk==True):
         gatk_results = "gatk_genotype_concordance_output"
