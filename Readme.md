@@ -5,7 +5,10 @@ To install:
 * Type "make" in the root to build the suite of programs used in this tool
 * type pip install -r requirements.txt to install needed modules
 * Python dependencies: filemagic, numpy, matplotlib
-* if numpy doesn't want to install on Ubuntu: sudo apt-get install python-numpy should give a precompiled version 
+* if numpy doesn't want to install on Ubuntu: "sudo apt-get install python-numpy" should give a precompiled version 
+* if matplot lib doesn't want to install on Ubuntu: "sudo apt-get install python-matplotlib" should give the precompiled version
+* for filemagic to work correctly on mac: "brew install libmagic"
+* installing Homebrew for Mac is outside the scope of this document [HomeBrew.sh](http://brew.sh/)
  
 Requirements:
 
