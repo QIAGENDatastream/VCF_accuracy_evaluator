@@ -8,6 +8,11 @@ include(TestHelper)
 include(VersionHelper)
 include(ProjectHelper)
 
+#set(EXE_VERSION_SUFFIX ${FULL_VERSION})
+
+configure_file(version/version.h.in version/version.h @ONLY)
+include_directories(${PROJECT_BINARY_DIR}/version)
+
 set(REQUIRED_BOOST_LIBS program_options regex)
 include(BuildBoost)
 include_directories(${Boost_INCLUDE_DIRS})
@@ -18,12 +23,8 @@ include_directories(${Samtools_INCLUDE_DIRS})
 add_custom_target(deps ALL)
 add_dependencies(deps samtools-lib boost-1.55)
 
-if (CMAKE_COMPILER_IS_GNUCC)
-    set(CMAKE_C_FLAGS "-Wall")
-endif ()
-
-if (CMAKE_COMPILER_IS_GNUCXX)
-    set(CMAKE_CXX_FLAGS "-Wall")
+if(${CMAKE_CXX_COMPILER_ID} MATCHES "GNU|Clang")
+    set(CMAKE_CXX_FLAGS "-Wall -std=c++0x")
 endif ()
 
 find_package(Threads)
@@ -50,8 +51,6 @@ set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 add_projects(src/lib)
 add_projects(src/exe)
 
-include(PackageInfo.cmake)
-
 ###########################################################################
 ## Testing
 set(TEST_DATA_DIRECTORY ${CMAKE_SOURCE_DIR}/test-data)
@@ -61,3 +60,7 @@ enable_testing(true)
 
 # integration testing
 add_subdirectory(integration-test)
+
+###########################################################################
+## Packaging
+include(PackageInfo.cmake)
