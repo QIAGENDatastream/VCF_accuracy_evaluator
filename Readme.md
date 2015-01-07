@@ -20,7 +20,7 @@ Requirements (shipped alongside and compiled automatically with the Makefile- bu
 * vt
 * tabix
 * samtools to reference the fasta (not done automatically by tool yet)
-* ftp://ftp-trace.ncbi.nih.gov/giab/ftp/release/NA12878_HG001/NISTv2.18/ provides suitable vcf and     
+* ftp://ftp-trace.ncbi.nih.gov/giab/ftp/release/NA12878_HG001/NISTv2.18/ provides suitable vcf and bed file     
 
 ###SKIPPING MAKE if you MEET MOST OR ALL REQUIREMENTS ALREADY:
 
@@ -53,3 +53,31 @@ There are static config variables at the top of accuracy_evaluator.py to specify
       --rough-and-graph     used bedtools for positional/missing site bed file
                             creation then interrogate bam to generate graph if bam
                             is supplied (default: False)
+
+
+###EXAMPLE OUTPUT:
+
+    MIXED   POSITONAL_MATCH_WRONG_ALLELES   53
+    MIXED   EXACT_MATCH 229
+    MIXED   ONE_ALLELE_CORRECT  744
+    MIXED   NOT_FOUND_IN_EVALUATION_CALLSET 458
+    MIXED   TOTAL   1484
+    MIXED   PERCENTAGE_EXACTLY_CORRECT  15.43
+    MIXED   PERCENTAGE_COMPLETELY_MISSED    30.86
+    INDEL   POSITONAL_MATCH_WRONG_ALLELES   1684
+    INDEL   EXACT_MATCH 134674
+    INDEL   ONE_ALLELE_CORRECT  6678
+    INDEL   NOT_FOUND_IN_EVALUATION_CALLSET 30161
+    INDEL   TOTAL   173197
+    INDEL   PERCENTAGE_EXACTLY_CORRECT  77.76
+    INDEL   PERCENTAGE_COMPLETELY_MISSED    17.41
+    SNP POSITONAL_MATCH_WRONG_ALLELES   185
+    SNP EXACT_MATCH 2599397
+    SNP ONE_ALLELE_CORRECT  4086
+    SNP NOT_FOUND_IN_EVALUATION_CALLSET 137734
+    SNP TOTAL   2741402
+    SNP PERCENTAGE_EXACTLY_CORRECT  94.82
+    SNP PERCENTAGE_COMPLETELY_MISSED    5.02
+    OVERALL PERCENTAGE_EXACTLY_CORRECT  93.77
+    OVERALL EXACT_MATCH 2734300
+    OVERALL TOTAL_SITES 2916083
