@@ -6,21 +6,21 @@ To install:
 * type pip install -r requirements.txt to install needed modules
 * Python dependencies:filemagic, numpy, matplotlib
 * Ubuntu Issues:
-** numpy: "sudo apt-get install python-numpy" should give a precompiled version 
-** matplolib: "sudo apt-get install python-matplotlib" should give the precompiled version
-** can't find zlib.h: "sudo apt-get install zlib1g-dev"
+- numpy: "sudo apt-get install python-numpy" should give a precompiled version 
+- matplolib: "sudo apt-get install python-matplotlib" should give the precompiled version
+- can't find zlib.h: "sudo apt-get install zlib1g-dev"
 * OSX issues
-** filemagic: "brew install libmagic"
-** installing Homebrew for Mac is outside the scope of this document [HomeBrew.sh](http://brew.sh/)
+- filemagic: "brew install libmagic"
+- installing Homebrew for Mac is outside the scope of this document [HomeBrew.sh](http://brew.sh/)
  
-Requirements (and shipped alongside and compiled automatically with the Makefile):
+Requirements (shipped alongside and compiled automatically with the Makefile- but can be manually specified if already installed):
 
 * bedtools
 * bam-readcount
 * vt
 * tabix
 * samtools to reference the fasta (not done automatically by tool yet)
-    
+* ftp://ftp-trace.ncbi.nih.gov/giab/ftp/release/NA12878_HG001/NISTv2.18/ provides suitable vcf and     
 ###SKIPPING MAKE if you MEET MOST OR ALL REQUIREMENTS ALREADY:
 There are static config variables at the top of accuracy_evaluator.py to specify the locations of various utilities.
 
