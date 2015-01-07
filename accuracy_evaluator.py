@@ -26,6 +26,7 @@ def check_for_programs():
             logger.critical("filename not found: %s" % file)
             logger.critical("Double check that the constants at the top of accuracy_evaluator.py point to real files")
             sys.exit(1)
+
 FILES_TO_CLEANUP=list()
 
 @atexit.register
@@ -56,12 +57,12 @@ def cleanup_file_later(file):
 
 def rough_positional_intersect(ref_snp_vcf, eval_snp_vcf, bed_file=None, bam_file=None):
     missed_sites_file = "sites_only_in_ref.vcf"
-    cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-header", "-a", ref_snp_vcf, "-b", eval_snp_vcf, ">", missed_sites_file]
+    cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-header", "-a", ref_snp_vcf, "-b", eval_snp_vcf, "-f 1", ">", missed_sites_file]
     cleanup_file_later(missed_sites_file)
     logger.debug("Running:%s" % " ".join(cmd))
     subprocess.call(" ".join(cmd), shell=True)
     extra_sites_file = "sites_only_in_eval.vcf"
-    cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-header", "-a", eval_snp_vcf, "-b", ref_snp_vcf, ">", extra_sites_file]
+    cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-header", "-a", eval_snp_vcf, "-b", ref_snp_vcf, "-f 1",  ">", extra_sites_file]
     cleanup_file_later(extra_sites_file)
     logger.debug("Running:%s" % " ".join(cmd))
     subprocess.call(" ".join(cmd), shell=True)
@@ -446,10 +447,22 @@ def pretty_print_stats(stats, chrom=None):
     print "%s\t%s\t%s"%("OVERALL", "TOTAL_SITES", total_sites)
 
 
-def deep_compare(ref_vcf, eval_vcf):
+def deep_compare(ref_vcf, eval_vcf, bed_file=None):
     """ do a thorough position and allele comparison"""
     chrom_list = determine_chrom_list(ref_vcf, eval_vcf)
     #chrom_list = ["1"]
+    if(bed_file != None):
+        logger.info("Bed File supplied, limiting both reference and evaluation vcf to supplied bed regions before deep comparison")
+        limit_cmd = [BEDTOOLS_LOCATION, "intersect", "-wa", "-u", "-header", "-a", ref_vcf, "-b", bed_file, ">", ref_region_limited_vcf]
+        cleanup_file_later(ref_region_limited_vcf)
+        logger.debug("Running:%s" % " ".join(limit_cmd))
+        subprocess.call(" ".join(limit_cmd), shell=True)
+        ref_vcf=ref_region_limited_vcf
+        limit_cmd = [BEDTOOLS_LOCATION, "intersect", "-wa", "-u", "-header", "-a", eval_vcf, "-b", bed_file, ">", eval_region_limited_vcf]
+        cleanup_file_later(eval_region_limited_vcf)
+        logger.debug("Running:%s" % " ".join(limit_cmd))
+        subprocess.call(" ".join(limit_cmd), shell=True)
+        eval_vcf=eval_region_limited_vcf 
     tabix_file(ref_vcf)
     tabix_file(eval_vcf)
     total_stats = None 
@@ -471,6 +484,7 @@ def deep_compare(ref_vcf, eval_vcf):
                     if not j in total_stats[k]:
                         total_stats[k][j]=0
                     total_stats[k][j]+=stats_dict[k][j]
+    
     print "Overall Stats:"
     print "Total Doubled lines(positions that appear twice in the evaluation vcf file potentially giving conflicting genotypes): %d" % total_doublings
     pretty_print_stats(total_stats)
@@ -507,7 +521,7 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compa
         rough_positional_intersect(ref_snp_vcf, normalized_vcf_output, bed_file=bed_file, bam_file=bam_file);
     if(do_deep_compare==True):
         logger.info("Beginning deep comparison....")
-        deep_compare(ref_snp_vcf, normalized_vcf_output)
+        deep_compare(ref_snp_vcf, normalized_vcf_output, bed_file=None)
    #prepare sites into bam-readcount format CHR START STOP
    
 def configure_logging(log_level):
