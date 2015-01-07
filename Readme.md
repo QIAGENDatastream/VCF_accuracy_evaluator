@@ -4,13 +4,16 @@ To install:
 
 * Type "make" in the root to build the suite of programs used in this tool
 * type pip install -r requirements.txt to install needed modules
-* Python dependencies: filemagic, numpy, matplotlib
-* if numpy doesn't want to install on Ubuntu: "sudo apt-get install python-numpy" should give a precompiled version 
-* if matplot lib doesn't want to install on Ubuntu: "sudo apt-get install python-matplotlib" should give the precompiled version
-* for filemagic to work correctly on mac: "brew install libmagic"
-* installing Homebrew for Mac is outside the scope of this document [HomeBrew.sh](http://brew.sh/)
+* Python dependencies:filemagic, numpy, matplotlib
+* Ubuntu Issues:
+** numpy: "sudo apt-get install python-numpy" should give a precompiled version 
+** matplolib: "sudo apt-get install python-matplotlib" should give the precompiled version
+** can't find zlib.h: "sudo apt-get install zlib1g-dev"
+* OSX issues
+** filemagic: "brew install libmagic"
+** installing Homebrew for Mac is outside the scope of this document [HomeBrew.sh](http://brew.sh/)
  
-Requirements:
+Requirements (and shipped alongside and compiled automatically with the Makefile):
 
 * bedtools
 * bam-readcount
