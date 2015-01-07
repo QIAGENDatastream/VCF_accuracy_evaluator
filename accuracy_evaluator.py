@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 
 import sys,re,os, subprocess, logging
-import magic, gzip
+import magic, gzip, atexit
 import argparse 
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from collections import Counter as mset
+
 
 #GATK will crash unless you use a particular version of java. you could change this variable to point to a different one 
 #if your default system java is problematic
@@ -17,13 +18,29 @@ BEDTOOLS_LOCATION = "./bedtools/bin/bedtools"
 TABIX_LOCATION = "tabix"
 logger = None
 
+FILES_TO_CLEANUP=list()
+
+@atexit.register
+def cleanup():
+    for file in FILES_TO_CLEANUP:
+        logger.info("CLEANUP: Delete %s" % file)
+        os.unlink(file);
+
+def cleanup_file_later(file):
+    global FILES_TO_CLEANUP
+    FILES_TO_CLEANUP.append(file)
+
+
+
 def rough_positional_intersect(ref_snp_vcf, eval_snp_vcf, bed_file=None):
     missed_sites_file = "sites_only_in_ref.vcf"
     cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-header", "-a", ref_snp_vcf, "-b", eval_snp_vcf, ">", missed_sites_file]
+    cleanup_file_later(missed_sites_file)
     logger.debug("Running:%s" % " ".join(cmd))
     subprocess.call(" ".join(cmd), shell=True)
     extra_sites_file = "sites_only_in_eval.vcf"
     cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-header", "-a", eval_snp_vcf, "-b", ref_snp_vcf, ">", extra_sites_file]
+    cleanup_file_later(extra_sites_file)
     logger.debug("Running:%s" % " ".join(cmd))
     subprocess.call(" ".join(cmd), shell=True)
     missed_sites = count_sites(missed_sites_file)
@@ -37,16 +54,37 @@ def rough_positional_intersect(ref_snp_vcf, eval_snp_vcf, bed_file=None):
     if bed_file != None:
         missed_sites_region_limited_file="sites_only_in_ref.region_limited.vcf"
         limit_cmd = [BEDTOOLS_LOCATION, "intersect", "-wa", "-u", "-header", "-a", missed_sites_file, "-b", bed_file, ">", missed_sites_region_limited_file]
+        cleanup_file_later(missed_sites_region_limited_file)
         logger.debug("Running:%s" % " ".join(limit_cmd))
         subprocess.call(" ".join(limit_cmd), shell=True)
         extra_sites_region_limited_file="sites_only_in_eval.region_limited.vcf"
         limit_cmd = [BEDTOOLS_LOCATION, "intersect", "-wa", "-u", "-header", "-a", extra_sites_file, "-b", bed_file, ">", extra_sites_region_limited_file]
+        clneaup_file_later(extra_sites_region_limited_file)
         logger.debug("Running:%s" % " ".join(limit_cmd))
         subprocess.call(" ".join(limit_cmd), shell=True)
         missed_sites_in_region = count_sites(missed_sites_region_limited_file)
         extra_sites_in_region = count_sites(extra_sites_region_limited_file)
         print "[POSITION_BASED]Missed Sites (Limited by supplied bed file): %s" % missed_sites_in_region
         print "[POSITION_BASED]Extra Sites (Limited by supplied bed file): %s" % extra_sites_in_region
+    if(bam_file != None and os.path.exists(bam_file)):
+        #FIXME: need to have a missed_sites_file for sure even if user skips positional
+        bam_readcount_sites_file = None
+        if(bed_file != None):
+            logger.info("Using supplied bedfile to limit sites in missing sites graph")
+            bam_readcount_sites_file = prepare_sites_file_from_vcf(missed_sites_region_limited_file)
+        else:
+            bam_readcount_sites_file = prepare_sites_file_from_vcf(missed_sites_file)
+        #run bam-readcount
+        bam_readcount_output = "bam_readcount.output"
+        cmd = [BAM_READCOUNT_LOCATION, "-w 1", "-l", bam_readcount_sites_file, "-f", ref_fasta, bam_file, ">", bam_readcount_output]
+        print " ".join(cmd)
+        subprocess.call(" ".join(cmd), shell=True)
+        cleanup_file_later(bam_readcount_output)
+        #generate graphs
+        missing_sites_coverage_quality_png = generate_coverage_and_quality_graph(bam_readcount_output)
+    else:
+        logger.info("BAM file not supplied - skipping missing site interrogation!")
+
 
 
 
@@ -150,7 +188,8 @@ def generate_coverage_and_quality_graph(bam_readcount_output, mapping_qual_cutof
 def prepare_sites_file_from_vcf(missed_sites_file):
     """ bam readcount takes a sub-optimal input format you have to construct to supply to it """
     fh = open(missed_sites_file, "r")
-    ofh = open("bam_readcount.input_sites", "w")
+    outfile = "bam_readcount.input_sites"
+    ofh = open(outfile, "w")
     while(True):
        line = fh.readline()
        if not line:
@@ -159,7 +198,8 @@ def prepare_sites_file_from_vcf(missed_sites_file):
        #CHR POS POS for bam readcount, pulling from a vcf
        ofh.write("\t".join([fields[0], fields[1], fields[1]]) + "\n")
     ofh.close()
-    return "bam_readcount.input_sites"
+    cleanup_file_later(outfile)
+    return outfile
 
 def count_sites(vcf_file):
     """ count lines in vcf file """
@@ -176,6 +216,7 @@ def count_sites(vcf_file):
 def tabix_file(vcf):
     """ index a vcf file with tabix for random access"""
     cmd = [TABIX_LOCATION, "-p" , "vcf", vcf]
+    cleanup_file_later(vcf + ".tbi")
     logger.debug("Tabix command: %s" % " ".join(cmd))
     rv = subprocess.call(cmd)
 
@@ -185,6 +226,7 @@ def get_tabix_chrom(vcf, chromosome, output=None):
         output = chromosome + "." + os.path.basename(vcf)
     cmd = [TABIX_LOCATION, "-h", vcf, chromosome, ">", output]
     logger.debug("Tabix command: %s" % " ".join(cmd))
+    cleanup_file_later(output)
     subprocess.call(" ".join(cmd), shell=True)
     return output
 
@@ -195,6 +237,7 @@ def bedtools_loj(ref_vcf, eval_vcf, output=None):
         output="left_outer_join_temp"
     cmd = [BEDTOOLS_LOCATION, "intersect", "-loj", "-f 1", "-a", ref_vcf, "-b", eval_vcf, ">" , output]
     logger.debug("Bedtools command: %s" % " ".join(cmd))
+    cleanup_file_later(output)
     subprocess.call(" ".join(cmd), shell=True)
     return output
 
@@ -205,7 +248,7 @@ def make_vcf_dict(vcf_line):
     vcf=dict(zip(keys, vcf_line))
     sample_fields = vcf["SAMPLE"].split(":")
     vcf["GT"]=sample_fields[0]
-    self.debug("VCF Dict Created: %s" % vcf)
+    logger.debug("VCF Dict Created: %s" % vcf)
     return vcf 
 
 def determine_mutation_type(vcf):
@@ -292,7 +335,7 @@ def parse_bedtools_intersection(loj_bedtools_file):
         if(prev_pos == fields[1]):
             doublings+=1 
         if len(fields) > 20: 
-            print >>sys.stderr, "Expected <=20 fields when joining two single sample vcf files, problem line: %s" % line
+            logger.critical( "Expected <=20 fields when joining two single sample vcf files, problem line: %s" % line)
             sys.exit(1)
         ref_vcf_line = fields[0:10]
         eval_vcf_line = fields[10:20]
@@ -342,7 +385,7 @@ def determine_chrom_list(ref_vcf, eval_vcf):
     for (key, value) in chrom_dict.items():
         if(value ==2):
             shared_chroms.append(key)
-    print >>sys.stderr, "Found %d chromosomes in common between the two files: %s" % ( len(shared_chroms), ", ".join(shared_chroms))
+    logger.info( "Found %d chromosomes in common between the two files: %s" % ( len(shared_chroms), ", ".join(shared_chroms)))
     return shared_chroms
 
 def pretty_print_stats(stats, chrom=None):
@@ -415,16 +458,19 @@ def deep_compare(ref_vcf, eval_vcf):
         #snps_by_position, snps_by_position_and_genotype
 
 def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compare, do_gatk, do_positional, log_level):
-    #run VT on eval file to make sure any indels are left shifted
-    #FIXME pass in other logging levels
     global logger
     logger = configure_logging(log_level)
+    logger.debug("Bed File: %s, Bam File: %s, Reference Vcf: %s, Eval VCF: %s" % (bed_file, bam_file, ref_snp_vcf, eval_snp_vcf))
+    logger.debug("Deep Comparison Flag: %s, GATK Flag: %s, Position/Graph Flag: %s" % (do_deep_compare, do_gatk, do_positional))
+    #run VT on eval file to make sure any indels are left shifted
+    #FIXME pass in other logging levels
     normalized_vcf_output = "temp.normalized.vcf.gz"
     cmd = [ VT_LOCATION, "normalize", "-r", ref_fasta, eval_snp_vcf, "-o", normalized_vcf_output ]
+    cleanup_file_later(normalized_vcf_output)
     logger.info("Running:" + " ".join(cmd))
     subprocess.call(cmd)
     #run GATK evaluator and store output
-    if(do_gatk==True):
+    if(do_gatk):
         logger.info("GATK flag set... Running GATK GenotypeConcordance")
         gatk_results = "gatk_genotype_concordance_output"
         cmd = [JAVA_LOCATION, "-jar", GATK_LOCATION, "-T", "GenotypeConcordance", "--comp", ref_snp_vcf, "--eval", normalized_vcf_output, "-R", ref_fasta, "-o", gatk_results]
@@ -434,27 +480,14 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compa
         logger.debug("GATK COMMAND: %s" % " ".join(cmd))
         subprocess.call(cmd)
     #run bed intersect by position and get the disjoint set only in reference
-    if(do_positional==True):
+    if(do_positional):
+        logger.info("position/bam graph set... running bedtools and bam-readcount if bam is present")
         rough_positional_intersect(ref_snp_vcf, normalized_vcf_output, bed_file, );
-
-    if(do_deep_compare==True):
-        #FIXME USE NORMALIZED VCF WHEN DONE TESTING
+    if(do_deep_compare):
+        logger.info("Beginning deep comparison....")
         deep_compare(ref_snp_vcf, normalized_vcf_output)
    #prepare sites into bam-readcount format CHR START STOP
-    if(bam_file != None and os.path.exists(bam_file)):
-        #FIXME: need to have a missed_sites_file for sure even if user skips positional
-        bam_readcount_sites_file = prepare_sites_file_from_vcf(missed_sites_file)
-        #run bam-readcount
-        bam_readcount_output = "bam_readcount.output"
-        cmd = [BAM_READCOUNT_LOCATION, "-w 1", "-l", bam_readcount_sites_file, "-f", ref_fasta, bam_file, ">", bam_readcount_output]
-        print " ".join(cmd)
-        subprocess.call(" ".join(cmd), shell=True)
-        #generate graphs
-        missing_sites_coverage_quality_png = generate_coverage_and_quality_graph(bam_readcount_output)
-    else:
-        print >>sys.stderr, "BAM file not supplied - skipping missing site interrogation!"
-
-
+   
 def configure_logging(log_level):
     logger = logging.getLogger("QIAGEN VCF Accuracy Eval")
     if log_level=="DEBUG":
@@ -469,20 +502,16 @@ def configure_logging(log_level):
     return logger
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Take in a high quality snp/indel set and evaluate a call set for concordance")
+    parser = argparse.ArgumentParser(description="Take in a high quality snp/indel set and evaluate a call set for concordance", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--bed_file", action="store", dest="bed_file", default=None, help="bed file to limit comparisons to certain regions- optional")
     parser.add_argument("--bam_file", action="store", dest="bam_file", help="bam file to use to get readcounts for missing sites")
     parser.add_argument("--log_level", action="store", dest="log_level", default=logging.INFO, help="INFO for basic, DEBUG for (very) detailed debug output)")
     parser.add_argument("--ref_vcf", action="store", dest="ref_vcf", help="file of SNPs or INDELs you know to be true in your callset", required=True)
     parser.add_argument("--eval_vcf", action="store", dest="eval_vcf", help="file of SNPs and/or INDELs you want to compare to the known true callset", required=True)
     parser.add_argument("--ref_fasta", action="store", dest="ref_fasta", help="reference fasta used to call the bam", required=True)
-    parser.add_argument("--deep-compare", action="store_true", dest="deep_compare", default="False", help="break things down by chromsome, snp, and indel")
+    parser.add_argument("--no-deep-compare", action="store_false", dest="deep_compare", default="True", help="Default, most detailed mode:break things down by allele, snp, and indel")
     parser.add_argument("--gatk", action="store_true", dest="gatk", default="False", help="run GATK GenotypeConcordance for a further check")
-    parser.add_argument("--no-rough", action="store_false", dest="rough", default="True", help="skip positional/missing site bed file creation")
+    parser.add_argument("--rough-and-graph", action="store_true", dest="rough", default="False", help="used bedtools for positional/missing site bed file creation then interrogate bam to generate graph if bam is supplied")
     args=parser.parse_args()
-    if not args.deep_compare and not args.gatk:
-        print >>sys.stderr, "Only doing fast positional intersect, aka --rough"
-    #FIXME add nice error messages if not enough files are supplied
-    print args.gatk, args.deep_compare, args.rough
     
     main(args.bed_file,args.bam_file, args.ref_vcf, args.eval_vcf, args.ref_fasta, args.deep_compare, args.gatk, args.rough, args.log_level);
