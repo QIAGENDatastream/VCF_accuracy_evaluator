@@ -23,16 +23,30 @@ FILES_TO_CLEANUP=list()
 @atexit.register
 def cleanup():
     for file in FILES_TO_CLEANUP:
-        logger.info("CLEANUP: Delete %s" % file)
+        logger.debug("CLEANUP: Delete %s" % file)
         os.unlink(file);
+
+def prepare_ref_fasta(fasta):
+    fai = fasta +".fai"
+    picard_dict = fasta.replace(".fasta",".dict")
+    if not os.path.exists(fasta):
+        logger.critical("Supplied fasta %s not found" % fasta)
+        sys.exit(1)
+    if not os.path.exists(fai):
+        logger.critical("Run: Samtools faidx %s to use this tool." % fasta)
+        sys.exit(1)
+    if not os.path.exists(picard_dict):
+        logger.warning("Run Picard SequenceDictionary to create a .dict file if you inted to use the GATK portion of this tool")
+
 
 def cleanup_file_later(file):
     global FILES_TO_CLEANUP
-    FILES_TO_CLEANUP.append(file)
+    if file not in FILES_TO_CLEANUP:
+        FILES_TO_CLEANUP.append(file)
 
 
 
-def rough_positional_intersect(ref_snp_vcf, eval_snp_vcf, bed_file=None):
+def rough_positional_intersect(ref_snp_vcf, eval_snp_vcf, bed_file=None, bam_file=None):
     missed_sites_file = "sites_only_in_ref.vcf"
     cmd = [BEDTOOLS_LOCATION, "intersect", "-v", "-header", "-a", ref_snp_vcf, "-b", eval_snp_vcf, ">", missed_sites_file]
     cleanup_file_later(missed_sites_file)
@@ -59,7 +73,7 @@ def rough_positional_intersect(ref_snp_vcf, eval_snp_vcf, bed_file=None):
         subprocess.call(" ".join(limit_cmd), shell=True)
         extra_sites_region_limited_file="sites_only_in_eval.region_limited.vcf"
         limit_cmd = [BEDTOOLS_LOCATION, "intersect", "-wa", "-u", "-header", "-a", extra_sites_file, "-b", bed_file, ">", extra_sites_region_limited_file]
-        clneaup_file_later(extra_sites_region_limited_file)
+        cleanup_file_later(extra_sites_region_limited_file)
         logger.debug("Running:%s" % " ".join(limit_cmd))
         subprocess.call(" ".join(limit_cmd), shell=True)
         missed_sites_in_region = count_sites(missed_sites_region_limited_file)
@@ -419,7 +433,7 @@ def pretty_print_stats(stats, chrom=None):
             missed_percent = 0
         print "%s\t%s\t%s"%(mut_type, "PERCENTAGE_EXACTLY_CORRECT", "%0.2f" % correct_percent)
         print "%s\t%s\t%s"%(mut_type, "PERCENTAGE_COMPLETELY_MISSED", "%0.2f" % missed_percent)
-    print "%s\t%s\t%s"%("OVERALL", "PERCENTAGE_EXACTLY_CORRECT", "%0.2f" % (total_exact_match_sites/total_sites * 100))
+    print "%s\t%s\t%s"%("OVERALL", "PERCENTAGE_EXACTLY_CORRECT", "%0.2f" % (float(total_exact_match_sites)/total_sites * 100))
     print "%s\t%s\t%s"%("OVERALL", "EXACT_MATCH", total_exact_match_sites)
     print "%s\t%s\t%s"%("OVERALL", "TOTAL_SITES", total_sites)
 
@@ -433,15 +447,13 @@ def deep_compare(ref_vcf, eval_vcf):
     total_stats = None 
     total_doublings = 0
     for chromosome in chrom_list:
+        logger.info("Processing Chromosome %s"  % chromosome)
         ref_chrom = get_tabix_chrom(ref_vcf, chromosome)
         eval_chrom = get_tabix_chrom(eval_vcf, chromosome)
         intersected_output = bedtools_loj(ref_chrom, eval_chrom)
         (stats_dict, doublings) = parse_bedtools_intersection(intersected_output)
         total_doublings+=doublings
        # print >>sys.stderr, "%d doublings in chrom %s" % (doublings, chromosome)
-        os.unlink(ref_chrom)
-        os.unlink(eval_chrom)
-        os.unlink(intersected_output)
       #  pretty_print_stats(stats_dict, chrom=chromosome)
         if not total_stats:
             total_stats=stats_dict
@@ -460,6 +472,7 @@ def deep_compare(ref_vcf, eval_vcf):
 def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compare, do_gatk, do_positional, log_level):
     global logger
     logger = configure_logging(log_level)
+    prepare_ref_fasta(ref_fasta)
     logger.debug("Bed File: %s, Bam File: %s, Reference Vcf: %s, Eval VCF: %s" % (bed_file, bam_file, ref_snp_vcf, eval_snp_vcf))
     logger.debug("Deep Comparison Flag: %s, GATK Flag: %s, Position/Graph Flag: %s" % (do_deep_compare, do_gatk, do_positional))
     #run VT on eval file to make sure any indels are left shifted
@@ -468,9 +481,9 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compa
     cmd = [ VT_LOCATION, "normalize", "-r", ref_fasta, eval_snp_vcf, "-o", normalized_vcf_output ]
 #    cleanup_file_later(normalized_vcf_output)
     logger.info("Running:" + " ".join(cmd))
-    subprocess.call(cmd)
+    #subprocess.call(cmd)
     #run GATK evaluator and store output
-    if(do_gatk):
+    if(do_gatk==True):
         logger.info("GATK flag set... Running GATK GenotypeConcordance")
         gatk_results = "gatk_genotype_concordance_output"
         cmd = [JAVA_LOCATION, "-jar", GATK_LOCATION, "-T", "GenotypeConcordance", "--comp", ref_snp_vcf, "--eval", normalized_vcf_output, "-R", ref_fasta, "-o", gatk_results]
@@ -480,10 +493,10 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compa
         logger.debug("GATK COMMAND: %s" % " ".join(cmd))
         subprocess.call(cmd)
     #run bed intersect by position and get the disjoint set only in reference
-    if(do_positional):
+    if(do_positional==True):
         logger.info("position/bam graph set... running bedtools and bam-readcount if bam is present")
-        rough_positional_intersect(ref_snp_vcf, normalized_vcf_output, bed_file, );
-    if(do_deep_compare):
+        rough_positional_intersect(ref_snp_vcf, normalized_vcf_output, bed_file=bed_file, bam_file=bam_file);
+    if(do_deep_compare==True):
         logger.info("Beginning deep comparison....")
         deep_compare(ref_snp_vcf, normalized_vcf_output)
    #prepare sites into bam-readcount format CHR START STOP
@@ -509,8 +522,8 @@ if __name__ == "__main__":
     parser.add_argument("--ref_vcf", action="store", dest="ref_vcf", help="file of SNPs or INDELs you know to be true in your callset", required=True)
     parser.add_argument("--eval_vcf", action="store", dest="eval_vcf", help="file of SNPs and/or INDELs you want to compare to the known true callset", required=True)
     parser.add_argument("--ref_fasta", action="store", dest="ref_fasta", help="reference fasta used to call the bam", required=True)
-    parser.add_argument("--no-deep-compare", action="store_false", dest="deep_compare", default="True", help="Default, most detailed mode:break things down by allele, snp, and indel")
-    parser.add_argument("--gatk", action="store_true", dest="gatk", default="False", help="run GATK GenotypeConcordance for a further check")
+    parser.add_argument("--no-deep-compare", action="store_false", dest="deep_compare", default=True, help="Default, most detailed mode:break things down by allele, snp, and indel")
+    parser.add_argument("--gatk", action="store_true", dest="gatk", default=False, help="run GATK GenotypeConcordance for a further check")
     parser.add_argument("--rough-and-graph", action="store_true", dest="rough", default="False", help="used bedtools for positional/missing site bed file creation then interrogate bam to generate graph if bam is supplied")
     args=parser.parse_args()
     main(args.bed_file,args.bam_file, args.ref_vcf, args.eval_vcf, args.ref_fasta, args.deep_compare, args.gatk, args.rough, args.log_level);
