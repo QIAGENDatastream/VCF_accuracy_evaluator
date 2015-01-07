@@ -1,8 +1,8 @@
 default:
 
 	$(MAKE) -C vt
-	cmake bam-readcount
-	$(MAKE) -C bam-readcount deps
-	$(MAKE) -C bam-readcount
+	cd bam-readcount/build; cmake ../
+	$(MAKE) -C bam-readcount/build deps
+	$(MAKE) -C bam-readcount/build 
 	$(MAKE) -C bedtools
 	$(MAKE) -C tabix-0.2.6
