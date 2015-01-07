@@ -466,7 +466,7 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compa
     #FIXME pass in other logging levels
     normalized_vcf_output = "temp.normalized.vcf.gz"
     cmd = [ VT_LOCATION, "normalize", "-r", ref_fasta, eval_snp_vcf, "-o", normalized_vcf_output ]
-    cleanup_file_later(normalized_vcf_output)
+#    cleanup_file_later(normalized_vcf_output)
     logger.info("Running:" + " ".join(cmd))
     subprocess.call(cmd)
     #run GATK evaluator and store output
@@ -513,5 +513,4 @@ if __name__ == "__main__":
     parser.add_argument("--gatk", action="store_true", dest="gatk", default="False", help="run GATK GenotypeConcordance for a further check")
     parser.add_argument("--rough-and-graph", action="store_true", dest="rough", default="False", help="used bedtools for positional/missing site bed file creation then interrogate bam to generate graph if bam is supplied")
     args=parser.parse_args()
-    
     main(args.bed_file,args.bam_file, args.ref_vcf, args.eval_vcf, args.ref_fasta, args.deep_compare, args.gatk, args.rough, args.log_level);
