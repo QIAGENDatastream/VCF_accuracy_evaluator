@@ -18,6 +18,14 @@ BEDTOOLS_LOCATION = "./bedtools/bin/bedtools"
 TABIX_LOCATION = "tabix"
 logger = None
 
+
+def check_for_programs():
+    for file in [GATK_LOCATION, BAM_READCOUNT_LOCATION, VT_LOCATION, BEDTOOLS_LOCATION, TABIX_LOCATION]:
+        if not os.path.exists(file):
+            logger.critical("UNABLE TO FIND TOOL THAT SHOULD HAVE BEEN COMPILED BY THE MAKEFILE")
+            logger.critical("filename not found: %s" % file)
+            logger.critical("Double check that the constants at the top of accuracy_evaluator.py point to real files")
+            sys.exit(1)
 FILES_TO_CLEANUP=list()
 
 @atexit.register
@@ -470,6 +478,7 @@ def deep_compare(ref_vcf, eval_vcf):
         #snps_by_position, snps_by_position_and_genotype
 
 def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compare, do_gatk, do_positional, log_level):
+    check_for_programs();
     global logger
     logger = configure_logging(log_level)
     prepare_ref_fasta(ref_fasta)
