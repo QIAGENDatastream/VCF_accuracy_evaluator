@@ -28,9 +28,7 @@ There are static config variables at the top of accuracy_evaluator.py to specify
                                  [--log_level LOG_LEVEL] --ref_vcf REF_VCF
                                  --eval_vcf EVAL_VCF --ref_fasta REF_FASTA
                                  [--no-deep-compare] [--gatk] [--rough-and-graph]
-
     Take in a high quality snp/indel set and evaluate a call set for concordance
-
     optional arguments:
       -h, --help            show this help message and exit
       --bed_file BED_FILE   bed file to limit comparisons to certain regions-
