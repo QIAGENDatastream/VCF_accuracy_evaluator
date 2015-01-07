@@ -1,3 +1,23 @@
+###INSTALLATION
+
+To install:
+
+* Type "make" in the root to build the suite of programs used in this tool
+* type pip install -r requirements.txt to install needed modules
+* Python dependencies: filemagic, numpy, matplotlib
+* if numpy doesn't want to install on Ubuntu: sudo apt-get install python-numpy should give a precompiled version 
+ 
+Requirements:
+
+* bedtools
+* bam-readcount
+* vt
+* tabix
+* samtools to reference the fasta (not done automatically by tool yet)
+    
+###SKIPPING MAKE if you MEET MOST OR ALL REQUIREMENTS ALREADY:
+There are static config variables at the top of accuracy_evaluator.py to specify the locations of various utilities.
+
     usage: accuracy_evaluator.py [-h] [--bed_file BED_FILE] [--bam_file BAM_FILE]
                                  [--log_level LOG_LEVEL] --ref_vcf REF_VCF
                                  --eval_vcf EVAL_VCF --ref_fasta REF_FASTA
