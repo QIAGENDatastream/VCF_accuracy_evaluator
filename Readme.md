@@ -21,7 +21,9 @@ Requirements (shipped alongside and compiled automatically with the Makefile- bu
 * tabix
 * samtools to reference the fasta (not done automatically by tool yet)
 * ftp://ftp-trace.ncbi.nih.gov/giab/ftp/release/NA12878_HG001/NISTv2.18/ provides suitable vcf and     
+
 ###SKIPPING MAKE if you MEET MOST OR ALL REQUIREMENTS ALREADY:
+
 There are static config variables at the top of accuracy_evaluator.py to specify the locations of various utilities.
 
     usage: accuracy_evaluator.py [-h] [--bed_file BED_FILE] [--bam_file BAM_FILE]
