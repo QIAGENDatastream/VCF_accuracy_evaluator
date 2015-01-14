@@ -12,10 +12,10 @@ from collections import Counter as mset
 #if your default system java is problematic
 JAVA_LOCATION = "java"
 GATK_LOCATION =  "./GATK/GenomeAnalysisTK.jar"
-BAM_READCOUNT_LOCATION = "./bam-readcount/bin/bam-readcount"
+BAM_READCOUNT_LOCATION = "./bam-readcount/build/bin/bam-readcount"
 VT_LOCATION = "./vt/vt"
 BEDTOOLS_LOCATION = "./bedtools/bin/bedtools"
-TABIX_LOCATION = "tabix"
+TABIX_LOCATION = "tabix-0.2.6/tabix"
 logger = None
 
 
@@ -238,6 +238,10 @@ def count_sites(vcf_file):
 
 def tabix_file(vcf):
     """ index a vcf file with tabix for random access"""
+    with magic.Magic(flags=magic.MAGIC_MIME_TYPE) as m:
+        if(m.id_filename(vcf).find("gzip") == -1):
+            logger.critical("VCF File needs to be bgzipped for tabix random access. tabix-0.26/bgzip should be compiled for use")
+            sys.exit(1)
     cmd = [TABIX_LOCATION, "-p" , "vcf", vcf]
     cleanup_file_later(vcf + ".tbi")
     logger.debug("Tabix command: %s" % " ".join(cmd))
@@ -305,8 +309,15 @@ def compare_genotype(ref_vcf, eval_vcf):
     eval_gt = re.split("[/|]", eval_vcf['GT'])
     #create list to use eval GT alleles as indices into
     eval_alt.insert(0, eval_vcf['REF'])
+    #in some cases there will be a "." as one part of the GT, meaning no call, we need to eliminate those from this set
+    if eval_gt[0]=='.':
+        eval_genotype=[eval_alt[int(eval_gt[1])]]
+    #not sure if nocall on haploid is legal for single sample, but it is in multi..this should prevent errors there
+    elif eval_gt[1] and eval_gt[1]=='.':
+        eval_genotype=[eval_alt[int(eval_gt[0])]]
+    else:
+        eval_genotype = [eval_alt[int(eval_gt[0])],eval_alt[int(eval_gt[1])]]
     #use the GT indices as array indices as VCF intends - Ref = index 0, all alts = indices 1..n
-    eval_genotype = [eval_alt[int(eval_gt[0])],eval_alt[int(eval_gt[1])]]
     #mset DOES allow sets to have non-unique members e.g. '["A","A"]' will remain uncondensed
     #so taking the intersection of two of these i
     ##will tell us how many of the alleles we got right
@@ -467,7 +478,7 @@ def deep_compare(ref_vcf, eval_vcf, bed_file=None):
     tabix_file(eval_vcf)
     total_stats = None 
     total_doublings = 0
-    for chromosome in chrom_list:
+    for chromosome in sorted(chrom_list):
         logger.info("Processing Chromosome %s"  % chromosome)
         ref_chrom = get_tabix_chrom(ref_vcf, chromosome)
         eval_chrom = get_tabix_chrom(eval_vcf, chromosome)
@@ -492,9 +503,9 @@ def deep_compare(ref_vcf, eval_vcf, bed_file=None):
         #snps_by_position, snps_by_position_and_genotype
 
 def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compare, do_gatk, do_positional, log_level):
-    check_for_programs();
     global logger
     logger = configure_logging(log_level)
+    check_for_programs();
     prepare_ref_fasta(ref_fasta)
     logger.debug("Bed File: %s, Bam File: %s, Reference Vcf: %s, Eval VCF: %s" % (bed_file, bam_file, ref_snp_vcf, eval_snp_vcf))
     logger.debug("Deep Comparison Flag: %s, GATK Flag: %s, Position/Graph Flag: %s" % (do_deep_compare, do_gatk, do_positional))
@@ -502,9 +513,9 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compa
     #FIXME pass in other logging levels
     normalized_vcf_output = "temp.normalized.vcf.gz"
     cmd = [ VT_LOCATION, "normalize", "-r", ref_fasta, eval_snp_vcf, "-o", normalized_vcf_output ]
-#    cleanup_file_later(normalized_vcf_output)
+    cleanup_file_later(normalized_vcf_output)
     logger.info("Running:" + " ".join(cmd))
-    #subprocess.call(cmd)
+    subprocess.call(cmd)
     #run GATK evaluator and store output
     if(do_gatk==True):
         logger.info("GATK flag set... Running GATK GenotypeConcordance")
@@ -521,7 +532,7 @@ def main(bed_file, bam_file, ref_snp_vcf, eval_snp_vcf, ref_fasta, do_deep_compa
         rough_positional_intersect(ref_snp_vcf, normalized_vcf_output, bed_file=bed_file, bam_file=bam_file);
     if(do_deep_compare==True):
         logger.info("Beginning deep comparison....")
-        deep_compare(ref_snp_vcf, normalized_vcf_output, bed_file=None)
+        deep_compare(ref_snp_vcf, normalized_vcf_output, bed_file=bed_file)
    #prepare sites into bam-readcount format CHR START STOP
    
 def configure_logging(log_level):
